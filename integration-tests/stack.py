@@ -385,6 +385,7 @@ def read_topic(
     consumer = Consumer(
         {
             "bootstrap.servers": bootstrap_servers,
+            "broker.address.family": "v4",
             "group.id": f"lab28-it-{run_id()}",
             "enable.auto.commit": False,
             "auto.offset.reset": "earliest",
@@ -444,7 +445,12 @@ def produce_raw(bootstrap_servers: str, topic: str, *, key: str, value: bytes) -
     """Put arbitrary bytes on a topic — the failure injection behind the DLQ test."""
     from confluent_kafka import Producer
 
-    producer = Producer({"bootstrap.servers": bootstrap_servers})
+    producer = Producer(
+        {
+            "bootstrap.servers": bootstrap_servers,
+            "broker.address.family": "v4",
+        }
+    )
     producer.produce(topic, key=key.encode("utf-8"), value=value)
     remaining = producer.flush(10.0)
     assert remaining == 0, f"could not deliver the poison message to {topic}"

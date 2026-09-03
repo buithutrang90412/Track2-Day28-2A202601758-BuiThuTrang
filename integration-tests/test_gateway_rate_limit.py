@@ -126,7 +126,7 @@ def _health_requests(settings: Settings) -> float:
     move the total between the two readings.
     """
     exposition = stack.scrape(f"{settings.api_url}/metrics")
-    return stack.metric_total(exposition, 'lab28_requests_total{route="/health')
+    return stack.metric_total(exposition, 'lab28_requests_total{route="/healthz')
 
 
 def test_the_gateway_answers_its_own_health_route(
