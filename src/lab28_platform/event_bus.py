@@ -69,6 +69,18 @@ class ConsumedMessage:
     headers: tuple[tuple[str, bytes | None], ...]
 
 
+def _kafka_client_config(
+    settings: KafkaSettings, extra: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "bootstrap.servers": settings.bootstrap_servers,
+        "broker.address.family": "v4",
+    }
+    if extra:
+        config.update(extra)
+    return config
+
+
 # --------------------------------------------------------------------------
 # Topic administration
 # --------------------------------------------------------------------------
@@ -82,7 +94,7 @@ def ensure_topics(
     Declarative topic creation is what makes retention and partition count part
     of the reviewed configuration instead of an accident of first use.
     """
-    admin = AdminClient({"bootstrap.servers": settings.bootstrap_servers})
+    admin = AdminClient(_kafka_client_config(settings))
     existing = set(admin.list_topics(timeout=timeout).topics)
     results: dict[str, str] = {}
 
@@ -116,7 +128,7 @@ def ensure_topics(
 
 def broker_metadata(settings: KafkaSettings, *, timeout: float = 3.0) -> dict[str, Any]:
     """Health probe used by /ready and the readiness report."""
-    admin = AdminClient({"bootstrap.servers": settings.bootstrap_servers})
+    admin = AdminClient(_kafka_client_config(settings))
     metadata = admin.list_topics(timeout=timeout)
     return {
         "brokers": len(metadata.brokers),
@@ -139,14 +151,16 @@ class EventPublisher:
     def __init__(self, settings: KafkaSettings) -> None:
         self._settings = settings
         self._producer = Producer(
-            {
-                "bootstrap.servers": settings.bootstrap_servers,
-                "acks": "all",
-                "enable.idempotence": True,
-                "retries": settings.max_delivery_attempts,
-                "delivery.timeout.ms": int(settings.delivery_timeout_seconds * 1000),
-                "linger.ms": 5,
-            }
+            _kafka_client_config(
+                settings,
+                {
+                    "acks": "all",
+                    "enable.idempotence": True,
+                    "retries": settings.max_delivery_attempts,
+                    "delivery.timeout.ms": int(settings.delivery_timeout_seconds * 1000),
+                    "linger.ms": 5,
+                },
+            )
         )
 
     @property
@@ -242,14 +256,16 @@ class BatchConsumer:
         self._settings = settings
         self._topic = topic or settings.topic_raw
         self._consumer = Consumer(
-            {
-                "bootstrap.servers": settings.bootstrap_servers,
-                "group.id": settings.group_id,
-                "auto.offset.reset": "earliest",
-                "enable.auto.commit": False,
-                "session.timeout.ms": 45000,
-                "max.poll.interval.ms": 300000,
-            }
+            _kafka_client_config(
+                settings,
+                {
+                    "group.id": settings.group_id,
+                    "auto.offset.reset": "earliest",
+                    "enable.auto.commit": False,
+                    "session.timeout.ms": 45000,
+                    "max.poll.interval.ms": 300000,
+                },
+            )
         )
         self._consumer.subscribe([self._topic])
 
@@ -446,12 +462,14 @@ def replay_dead_letters(
     the dead-letter must be fixed first, otherwise the message loops back.
     """
     consumer = Consumer(
-        {
-            "bootstrap.servers": settings.bootstrap_servers,
-            "group.id": f"{settings.group_id}-{group_suffix}",
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-        }
+        _kafka_client_config(
+            settings,
+            {
+                "group.id": f"{settings.group_id}-{group_suffix}",
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+            },
+        )
     )
     consumer.subscribe([settings.topic_dlq])
     publisher = EventPublisher(settings)
@@ -489,12 +507,14 @@ def replay_dead_letters(
 def dead_letter_count(settings: KafkaSettings, *, timeout: float = 5.0) -> int:
     """Count messages currently parked on the dead-letter topic."""
     consumer = Consumer(
-        {
-            "bootstrap.servers": settings.bootstrap_servers,
-            "group.id": f"{settings.group_id}-dlq-count",
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-        }
+        _kafka_client_config(
+            settings,
+            {
+                "group.id": f"{settings.group_id}-dlq-count",
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+            },
+        )
     )
     try:
         metadata = consumer.list_topics(settings.topic_dlq, timeout=timeout)
@@ -517,12 +537,14 @@ def dead_letter_count(settings: KafkaSettings, *, timeout: float = 5.0) -> int:
 def decode_dead_letters(settings: KafkaSettings, *, limit: int = 20) -> list[dict[str, Any]]:
     """Read dead letters for the runbook and the failure-injection evidence."""
     consumer = Consumer(
-        {
-            "bootstrap.servers": settings.bootstrap_servers,
-            "group.id": f"{settings.group_id}-dlq-read",
-            "auto.offset.reset": "earliest",
-            "enable.auto.commit": False,
-        }
+        _kafka_client_config(
+            settings,
+            {
+                "group.id": f"{settings.group_id}-dlq-read",
+                "auto.offset.reset": "earliest",
+                "enable.auto.commit": False,
+            },
+        )
     )
     consumer.subscribe([settings.topic_dlq])
     found: list[dict[str, Any]] = []
